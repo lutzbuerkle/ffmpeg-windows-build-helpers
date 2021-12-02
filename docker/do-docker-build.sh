@@ -2,7 +2,7 @@
 STARTTIME=`date +'%Y%m%dT%H%M%S'`
 OUTPUTDIR=./output_$STARTTIME
 
-if [ -d "../git" ]; then
+if [ -d "../.git" ]; then
   echo [`date +'%Y%m%dT%H%M%S'`] Updating local git repository.
   git pull
 fi
