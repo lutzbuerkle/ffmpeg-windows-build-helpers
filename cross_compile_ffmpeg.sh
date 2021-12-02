@@ -2284,12 +2284,12 @@ build_ffmpeg() {
     output_dir+="_lgpl"
   fi
 
-  if [[ ! -z $ffmpeg_git_checkout_version ]]; then
-    local output_branch_sanitized=$(echo ${ffmpeg_git_checkout_version} | sed "s/\//_/g") # release/4.3 to release_4.3
-    output_dir+="_$output_branch_sanitized"
-  else
+  if [[ -z $ffmpeg_git_checkout_version ]]; then
     # If version not provided, assume master branch desired
     ffmpeg_git_checkout_version="master"
+  elif [[ "$ffmpeg_git_checkout_version" != "master" ]]; then
+    local output_branch_sanitized=$(echo ${ffmpeg_git_checkout_version} | sed "s/\//_/g") # release/4.3 to release_4.3
+    output_dir+="_$output_branch_sanitized"
   fi
 
   local postpend_configure_opts=""
