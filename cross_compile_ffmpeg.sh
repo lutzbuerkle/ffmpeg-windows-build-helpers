@@ -86,9 +86,9 @@ check_missing_packages () {
     echo 'Install the missing packages before running this script.'
     determine_distro
 
-    apt_pkgs='subversion ragel curl texinfo g++ bison flex cvs yasm automake libtool autoconf gcc cmake git make pkg-config zlib1g-dev unzip pax nasm gperf autogen bzip2 autoconf-archive p7zip-full meson clang'
+    apt_pkgs='subversion ragel curl texinfo g++ ed bison flex cvs yasm automake libtool autoconf gcc cmake git make pkg-config zlib1g-dev unzip pax nasm gperf autogen bzip2 autoconf-archive p7zip-full meson clang'
 
-    [[ $DISTRO == "debian" ]] && apt_pkgs="$apt_pkgs libtool-bin ed"
+    [[ $DISTRO == "debian" ]] && apt_pkgs="$apt_pkgs libtool-bin ed" # extra for debian
     case "$DISTRO" in
       Ubuntu)
         echo "for ubuntu:"
@@ -582,7 +582,7 @@ do_meson() {
     fi
     local cur_dir2=$(pwd)
     local english_name=$(basename $cur_dir2)
-    local touch_name=$(get_small_touchfile_name already_built "$configure_options $configure_name $LDFLAGS $CFLAGS")
+    local touch_name=$(get_small_touchfile_name already_built_meson "$configure_options $configure_name $LDFLAGS $CFLAGS")
     if [ ! -f "$touch_name" ]; then
         if [ "$configure_noclean" != "noclean" ]; then
             make clean # just in case
@@ -1059,9 +1059,8 @@ build_libxml2() {
 }
 
 build_libvmaf() {
-  do_git_checkout https://github.com/Netflix/vmaf.git vmaf_git v1.5.2
+  do_git_checkout https://github.com/Netflix/vmaf.git vmaf_git v2.3.0
   cd vmaf_git
-    apply_patch file://$patch_dir/libvmaf.various-1.5.2.patch -p1
     cd libvmaf
     export CFLAGS="$CFLAGS -pthread"
     export CXXFLAGS="$CFLAGS -pthread"
@@ -1082,7 +1081,7 @@ build_libvmaf() {
     else
       rm -f ${mingw_w64_x86_64_prefix}/lib/libvmaf.dll.a
     fi
-    sed -i.bak "s/Libs.private.*/& -lstdc++/" "$PKG_CONFIG_PATH/libvmaf.pc" # .pc is still broken
+    sed -i.bak "s/Libs: .*/& -lstdc++/" "$PKG_CONFIG_PATH/libvmaf.pc" # .pc is still broken
   cd ../..
 }
 
@@ -1340,10 +1339,10 @@ build_libsndfile() {
 }
 
 build_lame() {
-  do_svn_checkout https://svn.code.sf.net/p/lame/svn/trunk/lame lame_svn r6474
+  do_svn_checkout https://svn.code.sf.net/p/lame/svn/trunk/lame lame_svn 
   cd lame_svn
     sed -i.bak '1s/^\xEF\xBB\xBF//' libmp3lame/i386/nasm.h # Remove a UTF-8 BOM that breaks nasm if it's still there; should be fixed in trunk eventually https://sourceforge.net/p/lame/patches/81/
-    generic_configure "--enable-nasm"
+    generic_configure "--enable-nasm --disable-decoder"
     do_make_and_make_install
   cd ..
 }
@@ -1758,8 +1757,8 @@ build_libvpx() {
     else
       local config_options="--target=x86_64-win64-gcc"
     fi
-    export CROSS="$cross_prefix"  # XXX investigate/report ssse3? huh wuh?
-    do_configure "$config_options --prefix=$mingw_w64_x86_64_prefix --disable-ssse3 --enable-static --disable-shared --disable-examples --disable-tools --disable-docs --disable-unit-tests --enable-vp9-highbitdepth --extra-cflags=-fno-asynchronous-unwind-tables --extra-cflags=-mstackrealign" # fno for Error: invalid register for .seh_savexmm
+    export CROSS="$cross_prefix"  # VP8 encoder *requires* sse3 support
+    do_configure "$config_options --prefix=$mingw_w64_x86_64_prefix --enable-ssse3 --enable-static --disable-shared --disable-examples --disable-tools --disable-docs --disable-unit-tests --enable-vp9-highbitdepth --extra-cflags=-fno-asynchronous-unwind-tables --extra-cflags=-mstackrealign" # fno for Error: invalid register for .seh_savexmm
     do_make_and_make_install
     unset CROSS
   cd ..
@@ -2330,14 +2329,13 @@ build_ffmpeg() {
       # SVT-HEVC
       # Apply the correct patches based on version. Logic (n4.4 patch for n4.2, n4.3 and n4.4)  based on patch notes here:
       # https://github.com/OpenVisualCloud/SVT-HEVC/commit/b5587b09f44bcae70676f14d3bc482e27f07b773#diff-2b35e92117ba43f8397c2036658784ba2059df128c9b8a2625d42bc527dffea1
-      if [[ $ffmpeg_git_checkout_version == *"master"* ]]; then
-        git apply "$work_dir/SVT-HEVC_git/ffmpeg_plugin/master-0001-lavc-svt_hevc-add-libsvt-hevc-encoder-wrapper.patch"
-      elif [[ $ffmpeg_git_checkout_version == *"n4.4"* ]] || [[ $ffmpeg_git_checkout_version == *"n4.3"* ]] || [[ $ffmpeg_git_checkout_version == *"n4.2"* ]]; then
+      if [[ $ffmpeg_git_checkout_version == *"n4.4"* ]] || [[ $ffmpeg_git_checkout_version == *"n4.3"* ]] || [[ $ffmpeg_git_checkout_version == *"n4.2"* ]]; then
         git apply "$work_dir/SVT-HEVC_git/ffmpeg_plugin/n4.4-0001-lavc-svt_hevc-add-libsvt-hevc-encoder-wrapper.patch"
         git apply "$patch_dir/SVT-HEVC-0002-doc-Add-libsvt_hevc-encoder-docs.patch"  # upstream patch does not apply on current ffmpeg master
-      else
-        # PUT PATCHES FOR OTHER VERSIONS HERE
+      elif [[ $ffmpeg_git_checkout_version == *"n4.1"* ]] || [[ $ffmpeg_git_checkout_version == *"n3.4"* ]] || [[ $ffmpeg_git_checkout_version == *"n3.2"* ]] || [[ $ffmpeg_git_checkout_version == *"n2.8"* ]]; then
         :
+      else
+        git apply "$work_dir/SVT-HEVC_git/ffmpeg_plugin/master-0001-lavc-svt_hevc-add-libsvt-hevc-encoder-wrapper.patch"
       fi
 
     fi
