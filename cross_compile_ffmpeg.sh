@@ -344,7 +344,7 @@ install_cross_compiler() {
 
     # --disable-shared allows c++ to be distributed at all...which seemed necessary for some random dependency which happens to use/require c++...
     local zeranoe_script_name=mingw-w64-build-r22.local
-    local zeranoe_script_options="--gcc-ver=10.2.0 --mingw-w64-ver=8.0.0 --default-configure --cpu-count=$gcc_cpu_count --disable-shared --clean-build --verbose --allow-overwrite --threads=winpthreads" # allow-overwrite to avoid some crufty prompts if I do rebuilds [or maybe should just nuke everything...]
+    local zeranoe_script_options="--gcc-ver=10.2.0 --mingw-w64-ver=9.0.0 --default-configure --cpu-count=$gcc_cpu_count --disable-shared --clean-build --verbose --allow-overwrite --threads=winpthreads" # allow-overwrite to avoid some crufty prompts if I do rebuilds [or maybe should just nuke everything...]
     if [[ ($compiler_flavors == "win32" || $compiler_flavors == "multi") && ! -f ../$win32_gcc ]]; then
       echo "Building win32 cross compiler..."
       download_gcc_build_script $zeranoe_script_name
@@ -512,7 +512,7 @@ do_make() {
     nice make $extra_make_options || exit 1
     touch $touch_name || exit 1 # only touch if the build was OK
   else
-    echo "Already made $(basename "$cur_dir2") ..."
+    echo "Already made $(dirname "$cur_dir2") $(basename "$cur_dir2") ..."
   fi
 }
 
@@ -1338,11 +1338,19 @@ build_libsndfile() {
   cd ..
 }
 
+build_mpg123() {
+  do_svn_checkout svn://scm.orgis.org/mpg123/trunk mpg123_svn r5008 # avoid Think again failure
+  cd mpg123_svn
+    generic_configure
+    do_make_and_make_install
+  cd ..
+}
+
 build_lame() {
   do_svn_checkout https://svn.code.sf.net/p/lame/svn/trunk/lame lame_svn 
   cd lame_svn
     sed -i.bak '1s/^\xEF\xBB\xBF//' libmp3lame/i386/nasm.h # Remove a UTF-8 BOM that breaks nasm if it's still there; should be fixed in trunk eventually https://sourceforge.net/p/lame/patches/81/
-    generic_configure "--enable-nasm --disable-decoder"
+    generic_configure "--enable-nasm --enable-libmpg123"
     do_make_and_make_install
   cd ..
 }
@@ -1813,12 +1821,14 @@ build_libx265() {
   if [[ ! -z $x265_git_checkout_version ]]; then
     checkout_dir+="_$x265_git_checkout_version"
     do_git_checkout "$remote" $checkout_dir "$x265_git_checkout_version"
-  fi
-  if [[ $prefer_stable = "n" ]] && [[ -z $x265_git_checkout_version ]] ; then
-    do_git_checkout "$remote" $checkout_dir "origin/master"
-  fi
-  if [[ $prefer_stable = "y" ]] && [[ -z $x265_git_checkout_version ]] ; then
-    do_git_checkout "$remote" $checkout_dir "origin/stable"
+  else
+    if [[ $prefer_stable = "n" ]]; then
+      checkout_dir+="_unstable"
+      do_git_checkout "$remote" $checkout_dir "origin/master"
+    fi
+    if [[ $prefer_stable = "y" ]]; then
+      do_git_checkout "$remote" $checkout_dir "origin/stable"
+    fi
   fi
   cd $checkout_dir
 
@@ -1872,12 +1882,12 @@ SAVE
 END
 EOF
   fi
-  do_make_install
+  make install # force reinstall in case changed stable -> unstable
   cd ../..
 }
 
 build_libopenh264() {
-  do_git_checkout "https://github.com/cisco/openh264.git"
+  do_git_checkout "https://github.com/cisco/openh264.git" openh264_git 75b9fcd2669c75a99791 # wels/codec_api.h weirdness
   cd openh264_git
     sed -i.bak "s/_M_X64/_M_DISABLED_X64/" codec/encoder/core/inc/param_svc.h # for 64 bit, avoid missing _set_FMA3_enable, it needed to link against msvcrt120 to get this or something weird?
     if [[ $bits_target == 32 ]]; then
@@ -1909,9 +1919,10 @@ build_libx264() {
   checkout_dir="${checkout_dir}_all_bitdepth"
 
   if [[ $prefer_stable = "n" ]]; then
-    do_git_checkout "https://code.videolan.org/videolan/x264.git" $checkout_dir "origin/master" # During 'configure': "Found no assembler. Minimum version is nasm-2.13" so disable for now...
+    checkout_dir="${checkout_dir}_unstable"
+    do_git_checkout "https://code.videolan.org/videolan/x264.git" $checkout_dir "origin/master" 
   else
-    do_git_checkout "https://code.videolan.org/videolan/x264.git" $checkout_dir  "origin/stable" # or "origin/stable" nasm again
+    do_git_checkout "https://code.videolan.org/videolan/x264.git" $checkout_dir  "origin/stable" 
   fi
   cd $checkout_dir
     if [[ ! -f configure.bak ]]; then # Change CFLAGS.
@@ -1942,7 +1953,7 @@ build_libx264() {
       # normal path non profile guided
       do_configure "$configure_flags"
       do_make
-      do_make_install
+      make install # force reinstall in case changed stable -> unstable
     fi
 
     unset LAVF_LIBS
@@ -2230,7 +2241,7 @@ build_mp4box() { # like build_gpac
     sed -i.bak "s/`uname -s`/MINGW32/g" configure
     # XXX do I want to disable more things here?
     # ./sandbox/cross_compilers/mingw-w64-i686/bin/i686-w64-mingw32-sdl-config
-    generic_configure "--static-build --static-bin --disable-oss-audio --extra-ldflags=-municode --disable-x11 --sdl-cfg=${cross_prefix}sdl-config"
+    generic_configure "  --cross-prefix=${cross_prefix} --static-build --static-bin --disable-oss-audio --extra-ldflags=-municode --disable-x11 --sdl-cfg=${cross_prefix}sdl-config"
     ./check_revision.sh
     # I seem unable to pass 3 libs into the same config line so do it with sed...
     sed -i.bak "s/EXTRALIBS=.*/EXTRALIBS=-lws2_32 -lwinmm -lz/g" config.mak
@@ -2269,7 +2280,7 @@ build_ffmpeg() {
   local extra_postpend_configure_options=$2
   local build_type=$1
   if [[ -z $3 ]]; then
-    local output_dir="ffmpeg_git" # XXX rename ffmpeg_diry?
+    local output_dir="ffmpeg_git"
   else
     local output_dir=$3
   fi
@@ -2380,6 +2391,8 @@ build_ffmpeg() {
 
     config_options+=" --extra-libs=-lharfbuzz" #  grr...needed for pre x264 build???
     config_options+=" --extra-libs=-lm" # libflite seemed to need this linux native...and have no .pc file huh?
+    config_options+=" --extra-libs=-lshlwapi" # lame needed this, no .pc file?
+    config_options+=" --extra-libs=-lmpg123" # ditto
     config_options+=" --extra-libs=-lpthread" # for some reason various and sundry needed this linux native
 
     config_options+=" --extra-cflags=-DLIBTWOLAME_STATIC --extra-cflags=-DMODPLUG_STATIC --extra-cflags=-DCACA_STATIC" # if we ever do a git pull then it nukes changes, which overrides manual changes to configure, so just use these for now :|
@@ -2593,7 +2606,8 @@ build_ffmpeg_dependencies() {
   build_libspeex # Uses libspeexdsp and dlfcn.
   build_libtheora # Needs libogg >= 1.1. Needs libvorbis >= 1.0.1, sdl and libpng for test, programs and examples [disabled]. Uses dlfcn.
   build_libsndfile "install-libgsm" # Needs libogg >= 1.1.3 and libvorbis >= 1.2.3 for external support [disabled]. Uses dlfcn. 'build_libsndfile "install-libgsm"' to install the included LibGSM 6.10.
-  build_lame # Uses dlfcn.
+  build_mpg123
+  build_lame # Uses dlfcn, mpg123
   build_twolame # Uses libsndfile >= 1.0.0 and dlfcn.
   build_libopencore # Uses dlfcn.
   build_libilbc # Uses dlfcn.
