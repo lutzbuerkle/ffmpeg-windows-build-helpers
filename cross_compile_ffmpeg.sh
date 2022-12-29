@@ -989,7 +989,7 @@ build_libpng() {
 }
 
 build_libwebp() {
-  do_git_checkout https://chromium.googlesource.com/webm/libwebp.git
+  do_git_checkout https://chromium.googlesource.com/webm/libwebp.git libwebp_git "origin/main"
   cd libwebp_git
     export LIBPNG_CONFIG="$mingw_w64_x86_64_prefix/bin/libpng-config --static" # LibPNG somehow doesn't get autodetected.
     generic_configure "--disable-wic"
@@ -1161,6 +1161,7 @@ build_gnutls() {
     # --disable-guile is so that if it finds guile installed (cygwin did/does) it won't try and link/build to it and fail...
     # libtasn1 is some dependency, appears provided is an option [see also build_libnettle]
     # pks #11 hopefully we don't need kit
+    apply_patch file://$patch_dir/gnutls-windows8.patch -p1 # defaults to win 8 kind of, either this or setWINNT_VER :|
     generic_configure "--disable-doc --disable-tools --disable-cxx --disable-tests --disable-gtk-doc-html --disable-libdane --disable-nls --enable-local-libopts --disable-guile --with-included-libtasn1 --without-p11-kit"
     do_make_and_make_install
     if [[ $compiler_flavors != "native"  ]]; then
@@ -1639,7 +1640,6 @@ build_libmysofa() {
       cmake_params+=" -DCODE_COVERAGE=0"
     fi
     do_cmake "$cmake_params"
-    apply_patch file://$patch_dir/libmysofa.patch -p1 # maybe unneeded now that double cmake no longer...hmm...
     do_make_and_make_install
   cd ..
 }
@@ -1758,9 +1758,9 @@ build_libxvid() {
 }
 
 build_libvpx() {
-  do_git_checkout https://chromium.googlesource.com/webm/libvpx.git
+  do_git_checkout https://chromium.googlesource.com/webm/libvpx.git libvpx_git "origin/main"
   cd libvpx_git
-     apply_patch file://$patch_dir/vpx_160_semaphore.patch -p1 # perhaps someday can remove this after 1.6.0 or mingw fixes it LOL
+    apply_patch file://$patch_dir/vpx_160_semaphore.patch -p1 # perhaps someday can remove this after 1.6.0 or mingw fixes it LOL
     if [[ $compiler_flavors == "native" ]]; then
       local config_options=""
     elif [[ "$bits_target" = "32" ]]; then
@@ -1768,7 +1768,8 @@ build_libvpx() {
     else
       local config_options="--target=x86_64-win64-gcc"
     fi
-    export CROSS="$cross_prefix"  # VP8 encoder *requires* sse3 support
+    export CROSS="$cross_prefix"  
+    # VP8 encoder *requires* sse3 support
     do_configure "$config_options --prefix=$mingw_w64_x86_64_prefix --enable-ssse3 --enable-static --disable-shared --disable-examples --disable-tools --disable-docs --disable-unit-tests --enable-vp9-highbitdepth --extra-cflags=-fno-asynchronous-unwind-tables --extra-cflags=-mstackrealign" # fno for Error: invalid register for .seh_savexmm
     do_make_and_make_install
     unset CROSS
@@ -2041,7 +2042,11 @@ build_lua() {
 }
 
 build_libcurl() {
-  generic_download_and_make_and_install https://curl.haxx.se/download/curl-7.46.0.tar.gz
+  download_and_unpack_file https://curl.haxx.se/download/curl-7.86.0.tar.gz
+  cd curl-7.86.0
+    generic_configure "--without-ssl" # XXX use --with-gnutls but it needed pkg-config or some odd?
+    do_make_and_make_install
+  cd ..
 }
 
 build_libhdhomerun() {
@@ -2353,7 +2358,7 @@ build_ffmpeg() {
       init_options+=" --disable-schannel"
       # Fix WinXP incompatibility by disabling Microsoft's Secure Channel, because Windows XP doesn't support TLS 1.1 and 1.2, but with GnuTLS or OpenSSL it does.  XP compat!
     fi
-    config_options="$init_options --enable-libcaca --enable-gray --enable-libtesseract --enable-fontconfig --enable-gmp --enable-gnutls --enable-libass --enable-libbluray --enable-libbs2b --enable-libflite --enable-libfreetype --enable-libfribidi --enable-libgme --enable-libgsm --enable-libilbc --enable-libmodplug --enable-libmp3lame --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopus --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libvorbis --enable-libwebp --enable-libzimg --enable-libzvbi --enable-libmysofa --enable-libopenjpeg  --enable-libopenh264  --enable-libvmaf --enable-libsrt --enable-libxml2 --enable-opengl --enable-libdav1d --enable-cuda-llvm"
+    config_options="$init_options --enable-libcaca --enable-gray --enable-libtesseract --enable-fontconfig --enable-gmp --enable-libass --enable-libbluray --enable-libbs2b --enable-libflite --enable-libfreetype --enable-libfribidi --enable-libgme --enable-libgsm --enable-libilbc --enable-libmodplug --enable-libmp3lame --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopus --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libvorbis --enable-libwebp --enable-libzimg --enable-libzvbi --enable-libmysofa --enable-libopenjpeg  --enable-libopenh264  --enable-libvmaf --enable-libsrt --enable-libxml2 --enable-opengl --enable-libdav1d --enable-cuda-llvm  --enable-gnutls"
 
     if [[ $build_svt = y ]]; then
       if [ "$bits_target" != "32" ]; then
@@ -2370,6 +2375,7 @@ build_ffmpeg() {
         elif [[ $ffmpeg_git_checkout_version == *"n4.1"* ]] || [[ $ffmpeg_git_checkout_version == *"n3.4"* ]] || [[ $ffmpeg_git_checkout_version == *"n3.2"* ]] || [[ $ffmpeg_git_checkout_version == *"n2.8"* ]]; then
           : # too old...
         else
+          # newer:
           git apply "$work_dir/SVT-HEVC_git/ffmpeg_plugin/master-0001-lavc-svt_hevc-add-libsvt-hevc-encoder-wrapper.patch"
         fi
         config_options+=" --enable-libsvthevc"
@@ -2458,12 +2464,12 @@ build_ffmpeg() {
 
     # XXX really ffmpeg should have set this up right but doesn't, patch FFmpeg itself instead...
     if [[ $1 == "static" ]]; then
+     # nb we can just modify this every time, it getes recreated, above..
       if [[ $build_intel_qsv = y  && $compiler_flavors != "native" ]]; then # Broken for native builds right now: https://github.com/lu-zero/mfx_dispatch/issues/71
-        sed -i.bak 's/-lavutil -lm.*/-lavutil -lm -lmfx -lstdc++ -lpthread/' "$PKG_CONFIG_PATH/libavutil.pc"
+        sed -i.bak 's/-lavutil -pthread -lm /-lavutil -pthread -lm -lmfx -lstdc++ -lmpg123 -lshlwapi /' "$PKG_CONFIG_PATH/libavutil.pc"
       else
-        sed -i.bak 's/-lavutil -lm.*/-lavutil -lm -lpthread/' "$PKG_CONFIG_PATH/libavutil.pc"
+        sed -i.bak 's/-lavutil -pthread -lm /-lavutil -pthread -lm -lmpg123 -lshlwapi /' "$PKG_CONFIG_PATH/libavutil.pc"
       fi
-      sed -i.bak 's/-lswresample -lm.*/-lswresample -lm -lsoxr/' "$PKG_CONFIG_PATH/libswresample.pc" # XXX patch ffmpeg
     fi
 
     sed -i.bak 's/-lswresample -lm.*/-lswresample -lm -lsoxr/' "$PKG_CONFIG_PATH/libswresample.pc" # XXX patch ffmpeg
@@ -2510,8 +2516,8 @@ build_ffmpeg() {
 }
 
 build_lsw() {
-   # Build L-Smash-Works, which are plugins based on lsmash
-   #build_ffmpeg static # dependency, assume already built
+   # Build L-Smash-Works, which are AviSynth plugins based on lsmash/ffmpeg
+   #build_ffmpeg static # dependency, assume already built since it builds before this does...
    build_lsmash # dependency
    do_git_checkout https://github.com/VFR-maniac/L-SMASH-Works.git lsw
    cd lsw/VapourSynth
@@ -2743,7 +2749,7 @@ enable_gpl=y
 build_x264_with_libav=n # To build x264 with Libavformat.
 ffmpeg_git_checkout="https://github.com/FFmpeg/FFmpeg.git"
 ffmpeg_source_dir=
-build_svt=y
+build_svt=n
 
 # parse command line parameters, if any
 while true; do
@@ -2801,7 +2807,7 @@ while true; do
     --build-dvbtee=* ) build_dvbtee="${1#*=}"; shift ;;
     --disable-nonfree=* ) disable_nonfree="${1#*=}"; shift ;;
     # this doesn't actually "build all", like doesn't build 10 high-bit LGPL ffmpeg, but it does exercise the "non default" type build options...
-    -a         ) compiler_flavors="multi"; build_mplayer=n; build_libmxf=y; build_mp4box=y; build_vlc=y; build_lsw=y;
+    -a         ) compiler_flavors="multi"; build_mplayer=n; build_libmxf=y; build_mp4box=n; build_vlc=y; build_lsw=y;
                  build_ffmpeg_static=y; build_ffmpeg_shared=y; build_lws=y; disable_nonfree=n; git_get_latest=y;
                  sandbox_ok=y; build_amd_amf=y; build_intel_qsv=y; build_dvbtee=y; build_x264_with_libav=y; shift ;;
     --build-svt=* ) build_svt="${1#*=}"; shift ;;
